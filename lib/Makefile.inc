@@ -144,6 +144,7 @@ LIB_CFILES =         \
   curl_threads.c     \
   curl_trc.c         \
   cw-out.c           \
+  cw-pause.c         \
   dict.c             \
   dllmain.c          \
   doh.c              \
@@ -197,6 +198,7 @@ LIB_CFILES =         \
   mprintf.c          \
   mqtt.c             \
   multi.c            \
+  multi_ev.c         \
   netrc.c            \
   nonblock.c         \
   noproxy.c          \
@@ -291,6 +293,7 @@ LIB_HFILES =         \
   curl_trc.h         \
   curlx.h            \
   cw-out.h           \
+  cw-pause.h         \
   dict.h             \
   doh.h              \
   dynbuf.h           \
@@ -333,6 +336,7 @@ LIB_HFILES =         \
   mime.h             \
   mqtt.h             \
   multihandle.h      \
+  multi_ev.h         \
   multiif.h          \
   netrc.h            \
   nonblock.h         \

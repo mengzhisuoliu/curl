@@ -170,7 +170,7 @@ void destroy_thread_sync_data(struct thread_sync_data *tsd)
    * close one end of the socket pair (may be done in resolver thread);
    * the other end (for reading) is always closed in the parent thread.
    */
-#ifndef USE_EVENTFD
+#ifndef HAVE_EVENTFD
   if(tsd->sock_pair[1] != CURL_SOCKET_BAD) {
     wakeup_close(tsd->sock_pair[1]);
   }
@@ -259,7 +259,7 @@ static CURLcode getaddrinfo_complete(struct Curl_easy *data)
  * and wait on it.
  */
 static
-#if defined(_WIN32_WCE) || defined(CURL_WINDOWS_UWP)
+#if defined(CURL_WINDOWS_UWP) || defined(UNDER_CE)
 DWORD
 #else
 unsigned int
@@ -293,7 +293,7 @@ CURL_STDCALL getaddrinfo_thread(void *arg)
   else {
 #ifndef CURL_DISABLE_SOCKETPAIR
     if(tsd->sock_pair[1] != CURL_SOCKET_BAD) {
-#ifdef USE_EVENTFD
+#ifdef HAVE_EVENTFD
       const uint64_t buf[1] = { 1 };
 #else
       const char buf[1] = { 1 };
@@ -318,7 +318,7 @@ CURL_STDCALL getaddrinfo_thread(void *arg)
  * gethostbyname_thread() resolves a name and then exits.
  */
 static
-#if defined(_WIN32_WCE) || defined(CURL_WINDOWS_UWP)
+#if defined(CURL_WINDOWS_UWP) || defined(UNDER_CE)
 DWORD
 #else
 unsigned int
@@ -394,7 +394,7 @@ static void destroy_async_data(struct Curl_easy *data)
      * ensure CURLMOPT_SOCKETFUNCTION fires CURL_POLL_REMOVE
      * before the FD is invalidated to avoid EBADF on EPOLL_CTL_DEL
      */
-    Curl_multi_closed(data, sock_rd);
+    Curl_multi_will_close(data, sock_rd);
     wakeup_close(sock_rd);
 #endif
 
@@ -412,6 +412,7 @@ static CURLcode resolve_httpsrr(struct Curl_easy *data,
     return CURLE_FAILED_INIT;
 
   memset(&async->thdata.hinfo, 0, sizeof(struct Curl_https_rrinfo));
+  async->thdata.hinfo.port = -1;
   ares_query_dnsrec(async->thdata.channel,
                     async->hostname, ARES_CLASS_IN,
                     ARES_REC_TYPE_HTTPS,
@@ -476,7 +477,7 @@ err_exit:
   destroy_async_data(data);
 
 errno_exit:
-  errno = err;
+  CURL_SETERRNO(err);
   return FALSE;
 }
 

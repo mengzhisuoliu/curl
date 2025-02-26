@@ -39,7 +39,9 @@
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 
 #ifdef HAVE_SYS_PARAM_H
 #include <sys/param.h>
@@ -878,6 +880,11 @@ CURLcode Curl_xfer_write_resp(struct Curl_easy *data,
   CURL_TRC_WRITE(data, "xfer_write_resp(len=%zu, eos=%d) -> %d",
                  blen, is_eos, result);
   return result;
+}
+
+bool Curl_xfer_write_is_paused(struct Curl_easy *data)
+{
+  return Curl_cwriter_is_paused(data);
 }
 
 CURLcode Curl_xfer_write_resp_hd(struct Curl_easy *data,

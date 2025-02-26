@@ -1267,6 +1267,9 @@ static CURLcode cf_quiche_ctx_open(struct Curl_cfilter *cf,
   int rv;
   CURLcode result;
   const struct Curl_sockaddr_ex *sockaddr;
+static const struct alpn_spec ALPN_SPEC_H3 = {
+  { "h3" }, 1
+};
 
   DEBUGASSERT(ctx->q.sockfd != CURL_SOCKET_BAD);
   DEBUGASSERT(ctx->initialized);
@@ -1304,9 +1307,7 @@ static CURLcode cf_quiche_ctx_open(struct Curl_cfilter *cf,
                                        - 1);
 
   result = Curl_vquic_tls_init(&ctx->tls, cf, data, &ctx->peer,
-                               QUICHE_H3_APPLICATION_PROTOCOL,
-                               sizeof(QUICHE_H3_APPLICATION_PROTOCOL) - 1,
-                               NULL, NULL, cf, NULL);
+                               &ALPN_SPEC_H3, NULL, NULL, cf, NULL);
   if(result)
     return result;
 
@@ -1378,7 +1379,7 @@ static CURLcode cf_quiche_verify_peer(struct Curl_cfilter *cf,
 
 static CURLcode cf_quiche_connect(struct Curl_cfilter *cf,
                                   struct Curl_easy *data,
-                                  bool blocking, bool *done)
+                                  bool *done)
 {
   struct cf_quiche_ctx *ctx = cf->ctx;
   CURLcode result = CURLE_OK;
@@ -1390,7 +1391,7 @@ static CURLcode cf_quiche_connect(struct Curl_cfilter *cf,
 
   /* Connect the UDP filter first */
   if(!cf->next->connected) {
-    result = Curl_conn_cf_connect(cf->next, data, blocking, done);
+    result = Curl_conn_cf_connect(cf->next, data, done);
     if(result || !*done)
       return result;
   }

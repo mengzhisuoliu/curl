@@ -31,6 +31,12 @@ void Curl_str_init(struct Curl_str *out)
   out->len = 0;
 }
 
+void Curl_str_assign(struct Curl_str *out, const char *str, size_t len)
+{
+  out->str = str;
+  out->len = len;
+}
+
 /* Get a word until the first DELIM or end of string. At least one byte long.
    return non-zero on error */
 int Curl_str_until(const char **linep, struct Curl_str *out,
@@ -61,6 +67,29 @@ int Curl_str_word(const char **linep, struct Curl_str *out,
                   const size_t max)
 {
   return Curl_str_until(linep, out, max, ' ');
+}
+
+/* Get a word until a newline byte or end of string. At least one byte long.
+   return non-zero on error */
+int Curl_str_untilnl(const char **linep, struct Curl_str *out,
+                     const size_t max)
+{
+  const char *s = *linep;
+  size_t len = 0;
+  DEBUGASSERT(linep && *linep && out && max);
+
+  Curl_str_init(out);
+  while(*s && !ISNEWLINE(*s)) {
+    s++;
+    if(++len > max)
+      return STRE_BIG;
+  }
+  if(!len)
+    return STRE_SHORT;
+  out->str = *linep;
+  out->len = len;
+  *linep = s; /* point to the first byte after the word */
+  return STRE_OK;
 }
 
 
@@ -201,6 +230,16 @@ int Curl_str_casecompare(struct Curl_str *str, const char *check)
 {
   size_t clen = check ? strlen(check) : 0;
   return ((str->len == clen) && strncasecompare(str->str, check, clen));
+}
+
+/* case sensitive string compare. Returns non-zero on match. */
+int Curl_str_cmp(struct Curl_str *str, const char *check)
+{
+  if(check) {
+    size_t clen = strlen(check);
+    return ((str->len == clen) && !strncmp(str->str, check, clen));
+  }
+  return !!(str->len);
 }
 
 /* Trim off 'num' number of bytes from the beginning (left side) of the

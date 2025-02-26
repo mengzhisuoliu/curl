@@ -84,8 +84,10 @@ use Digest::MD5 qw(md5);
 use List::Util 'sum';
 use I18N::Langinfo qw(langinfo CODESET);
 
+use serverhelp qw(
+    server_exe
+    );
 use pathhelp qw(
-    exe_ext
     sys_native_current_path
     );
 use processhelp qw(
@@ -510,7 +512,7 @@ sub checksystemfeatures {
     @version = <$versout>;
     close($versout);
 
-    open(my $disabledh, "-|", "server/disabled".exe_ext('TOOL'));
+    open(my $disabledh, "-|", server_exe('disabled', 'TOOL'));
     @disabled = <$disabledh>;
     close($disabledh);
 
@@ -541,7 +543,7 @@ sub checksystemfeatures {
                 $pwd = sys_native_current_path();
                 $feature{"win32"} = 1;
             }
-            if ($libcurl =~ /\s(winssl|schannel)\b/i) {
+            if ($libcurl =~ /\sschannel\b/i) {
                 $feature{"Schannel"} = 1;
                 $feature{"SSLpinning"} = 1;
             }
@@ -567,7 +569,7 @@ sub checksystemfeatures {
                 $feature{"sectransp"} = 1;
                 $feature{"SSLpinning"} = 1;
             }
-            elsif ($libcurl =~ /\sBoringSSL\b/i) {
+            elsif ($libcurl =~ /\s(BoringSSL|AWS-LC)\b/i) {
                 # OpenSSL compatible API
                 $feature{"OpenSSL"} = 1;
                 $feature{"SSLpinning"} = 1;
@@ -766,7 +768,7 @@ sub checksystemfeatures {
         # client has IPv6 support
 
         # check if the HTTP server has it!
-        my $cmd = "server/sws".exe_ext('SRV')." --version";
+        my $cmd = server_exe('sws')." --version";
         my @sws = `$cmd`;
         if($sws[0] =~ /IPv6/) {
             # HTTP server has IPv6 support!
@@ -774,7 +776,7 @@ sub checksystemfeatures {
         }
 
         # check if the FTP server has it!
-        $cmd = "server/sockfilt".exe_ext('SRV')." --version";
+        $cmd = server_exe('sockfilt')." --version";
         @sws = `$cmd`;
         if($sws[0] =~ /IPv6/) {
             # FTP server has IPv6 support!
@@ -784,7 +786,7 @@ sub checksystemfeatures {
 
     if($feature{"UnixSockets"}) {
         # client has Unix sockets support, check whether the HTTP server has it
-        my $cmd = "server/sws".exe_ext('SRV')." --version";
+        my $cmd = server_exe('sws')." --version";
         my @sws = `$cmd`;
         $http_unix = 1 if($sws[0] =~ /unix/);
     }

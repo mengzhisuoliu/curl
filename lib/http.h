@@ -76,6 +76,7 @@ struct dynhds;
 
 struct http_negotiation {
   unsigned char rcvd_min; /* minimum version seen in responses, 09, 10, 11 */
+  http_majors wanted;  /* wanted major versions when talking to server */
   http_majors allowed; /* allowed major versions when talking to server */
   BIT(h2_upgrade);  /* Do HTTP Upgrade from 1.1 to 2 */
   BIT(h2_prior_knowledge); /* Directly do HTTP/2 without ALPN/SSL */
@@ -130,6 +131,7 @@ CURLcode Curl_http_write_resp_hd(struct Curl_easy *data,
 /* These functions are in http.c */
 CURLcode Curl_http_input_auth(struct Curl_easy *data, bool proxy,
                               const char *auth);
+
 CURLcode Curl_http_auth_act(struct Curl_easy *data);
 
 /* follow a redirect or not */
