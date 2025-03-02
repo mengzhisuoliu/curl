@@ -159,6 +159,7 @@ typedef unsigned int curl_prot_t;
 #include "http_chunks.h" /* for the structs and enum stuff */
 #include "hostip.h"
 #include "hash.h"
+#include "hash_offt.h"
 #include "splay.h"
 #include "dynbuf.h"
 #include "dynhds.h"
@@ -513,7 +514,6 @@ struct ConnectBits {
 #ifdef USE_UNIX_SOCKETS
   BIT(abstract_unix_socket);
 #endif
-  BIT(tls_upgraded);
   BIT(sock_accepted); /* TRUE if the SECONDARYSOCKET was created with
                          accept() */
   BIT(parallel_connect); /* set TRUE when a parallel connect attempt has
@@ -566,7 +566,6 @@ struct hostname {
 #if defined(CURLRES_ASYNCH) || !defined(CURL_DISABLE_DOH)
 #define USE_CURL_ASYNC
 struct Curl_async {
-  char *hostname;
   struct Curl_dns_entry *dns;
 #ifdef CURLRES_ASYNCH
   struct thread_data thdata;
@@ -756,6 +755,7 @@ struct ldapconninfo;
  */
 struct connectdata {
   struct Curl_llist_node cpool_node; /* conncache lists */
+  struct Curl_llist_node cshutdn_node; /* cshutdn list */
 
   curl_closesocket_callback fclosesocket; /* function closing the socket(s) */
   void *closesocket_client;
@@ -816,9 +816,6 @@ struct connectdata {
     struct curltime start[2]; /* when filter shutdown started */
     unsigned int timeout_ms; /* 0 means no timeout */
   } shutdown;
-  /* Last pollset used in connection shutdown. Used to detect changes
-   * for multi_socket API. */
-  struct easy_pollset shutdown_poll;
 
   struct ssl_primary_config ssl_config;
 #ifndef CURL_DISABLE_PROXY
@@ -1139,6 +1136,7 @@ typedef enum {
   EXPIRE_QUIC,
   EXPIRE_FTP_ACCEPT,
   EXPIRE_ALPN_EYEBALLS,
+  EXPIRE_SHUTDOWN,
   EXPIRE_LAST /* not an actual timer, used as a marker only */
 } expire_id;
 
@@ -1694,6 +1692,9 @@ struct UserDefined {
   struct curl_slist *mail_rcpt; /* linked list of mail recipients */
 #endif
   unsigned int maxconnects; /* Max idle connections in the connection cache */
+#ifdef USE_ECH
+  int tls_ech;      /* TLS ECH configuration  */
+#endif
   unsigned short use_port; /* which port to use (when not using default) */
 #ifndef CURL_DISABLE_BINDLOCAL
   unsigned short localport; /* local port number to bind to */
@@ -1831,9 +1832,6 @@ struct UserDefined {
 #ifndef CURL_DISABLE_WEBSOCKETS
   BIT(ws_raw_mode);
 #endif
-#ifdef USE_ECH
-  int tls_ech;      /* TLS ECH configuration  */
-#endif
 };
 
 #ifndef CURL_DISABLE_MIME
@@ -1885,12 +1883,6 @@ struct Curl_easy {
   CURLcode result;   /* previous result */
 
   struct Curl_message msg; /* A single posted message. */
-
-  /* Array with the plain socket numbers this handle takes care of, in no
-     particular order. Note that all sockets are added to the sockhash, where
-     the state etc are also kept. This array is mostly used to detect when a
-     socket is to be removed from the hash. See singlesocket(). */
-  struct easy_pollset last_poll;
 
   struct Names dns;
   struct Curl_multi *multi;    /* if non-NULL, points to the multi handle

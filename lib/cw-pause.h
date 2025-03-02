@@ -1,3 +1,5 @@
+#ifndef HEADER_CURL_CW_PAUSE_H
+#define HEADER_CURL_CW_PAUSE_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -21,31 +23,18 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "server_setup.h"
 
-#include "getpart.h"
+#include "curl_setup.h"
 
-#include "curl_printf.h"
+#include "sendf.h"
 
-/* include memdebug.h last */
-#include "memdebug.h"
+/**
+ * The client writer type "cw-pause" that buffers writes for
+ * paused transfer writes.
+ */
+extern struct Curl_cwtype Curl_cwt_pause;
 
-int main(int argc, char **argv)
-{
-  char  *part;
-  size_t partlen;
+CURLcode Curl_cw_pause_flush(struct Curl_easy *data);
 
-  if(argc < 3) {
-    printf("./testpart main sub\n");
-  }
-  else {
-    int rc = getpart(&part, &partlen, argv[1], argv[2], stdin);
-    size_t i;
-    if(rc)
-      return rc;
-    for(i = 0; i < partlen; i++)
-      printf("%c", part[i]);
-    free(part);
-  }
-  return 0;
-}
+
+#endif /* HEADER_CURL_CW_PAUSE_H */

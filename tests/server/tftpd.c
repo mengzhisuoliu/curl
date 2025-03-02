@@ -55,7 +55,9 @@
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
@@ -642,8 +644,8 @@ int main(int argc, char **argv)
             logdir, SERVERLOGS_LOCKDIR, ipv_inuse);
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   install_signal_handlers(true);

@@ -30,7 +30,9 @@
 
  */
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -622,7 +624,7 @@ static int ProcessRequest(struct httprequest *req)
       while(*ptr && ISSPACE(*ptr))
         ptr++;
       endptr = ptr;
-      errno = 0;
+      CURL_SETERRNO(0);
       clen = strtoul(ptr, &endptr, 10);
       if((ptr == endptr) || !ISSPACE(*endptr) || (ERANGE == errno)) {
         /* this assumes that a zero Content-Length is valid */
@@ -1609,7 +1611,7 @@ static void http_connect(curl_socket_t *infdp,
           if(!req2) {
             req2 = malloc(sizeof(*req2));
             if(!req2)
-              exit(1);
+              goto http_connect_cleanup;  /* fail */
           }
           memset(req2, 0, sizeof(*req2));
           logmsg("====> Client connect DATA");
@@ -2205,8 +2207,8 @@ int main(int argc, char *argv[])
             is_proxy ? "-proxy" : "", socket_type);
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   install_signal_handlers(false);

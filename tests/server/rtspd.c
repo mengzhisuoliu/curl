@@ -29,7 +29,9 @@
  * This source file was started based on curl's HTTP test suite server.
  */
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -474,7 +476,7 @@ static int ProcessRequest(struct httprequest *req)
       while(*ptr && ISSPACE(*ptr))
         ptr++;
       endptr = ptr;
-      errno = 0;
+      CURL_SETERRNO(0);
       clen = strtoul(ptr, &endptr, 10);
       if((ptr == endptr) || !ISSPACE(*endptr) || (ERANGE == errno)) {
         /* this assumes that a zero Content-Length is valid */
@@ -1143,8 +1145,8 @@ int main(int argc, char *argv[])
             logdir, SERVERLOGS_LOCKDIR, ipv_inuse);
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   install_signal_handlers(false);

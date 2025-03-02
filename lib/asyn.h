@@ -64,6 +64,7 @@ struct thread_data {
 #if defined(USE_HTTPSRR) && defined(USE_ARES)
   struct Curl_https_rrinfo hinfo;
   ares_channel channel;
+  int num_pending; /* number of outstanding c-ares requests */
 #endif
   bool init;
 };
@@ -176,7 +177,7 @@ void Curl_resolver_kill(struct Curl_easy *data);
 
 /* Curl_resolver_getsock()
  *
- * This function is called from the multi_getsock() function.  'sock' is a
+ * This function is called from the Curl_multi_getsock() function.  'sock' is a
  * pointer to an array to hold the file descriptors, with 'numsock' being the
  * size of that array (in number of entries). This function is supposed to
  * return bitmask indicating what file descriptors (referring to array indexes
