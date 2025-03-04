@@ -36,6 +36,7 @@
  ***************************************************************************/
 
 #include "curl_setup.h"
+#include "dynbuf.h"
 
 #ifndef CURL_DISABLE_IMAP
 
@@ -192,6 +193,10 @@ static const struct SASLproto saslimap = {
   SASL_FLAG_BASE64            /* Configuration flags */
 };
 
+struct ulbits {
+  int bit;
+  const char *flag;
+};
 
 /***********************************************************************
  *
@@ -473,7 +478,6 @@ static CURLcode imap_perform_upgrade_tls(struct Curl_easy *data,
       goto out;
     /* Change the connection handler */
     conn->handler = &Curl_handler_imaps;
-    conn->bits.tls_upgraded = TRUE;
   }
 
   DEBUGASSERT(!imapc->ssldone);
@@ -761,6 +765,7 @@ static CURLcode imap_perform_append(struct Curl_easy *data)
   CURLcode result = CURLE_OK;
   struct IMAP *imap = data->req.p.imap;
   char *mailbox;
+  struct dynbuf flags;
 
   /* Check we have a mailbox */
   if(!imap->mailbox) {
@@ -809,10 +814,43 @@ static CURLcode imap_perform_append(struct Curl_easy *data)
   if(!mailbox)
     return CURLE_OUT_OF_MEMORY;
 
-  /* Send the APPEND command */
-  result = imap_sendf(data, "APPEND %s (\\Seen) {%" FMT_OFF_T "}",
-                      mailbox, data->state.infilesize);
+  /* Generate flags string and send the APPEND command */
+  Curl_dyn_init(&flags, 100);
+  if(data->set.upload_flags) {
+    int i;
+    struct ulbits ulflag[] = {
+      {CURLULFLAG_ANSWERED, "Answered"},
+      {CURLULFLAG_DELETED, "Deleted"},
+      {CURLULFLAG_DRAFT, "Draft"},
+      {CURLULFLAG_FLAGGED, "Flagged"},
+      {CURLULFLAG_SEEN, "Seen"},
+      {0, NULL}
+    };
 
+    result = CURLE_OUT_OF_MEMORY;
+    if(Curl_dyn_add(&flags, " (")) {
+      goto cleanup;
+    }
+
+    for(i = 0; ulflag[i].bit; i++) {
+      if(data->set.upload_flags & ulflag[i].bit) {
+        if((Curl_dyn_len(&flags) > 2 && Curl_dyn_add(&flags, " ")) ||
+           Curl_dyn_add(&flags, "\\") || Curl_dyn_add(&flags, ulflag[i].flag))
+            goto cleanup;
+      }
+    }
+
+    if(Curl_dyn_add(&flags, ")"))
+      goto cleanup;
+  }
+  else if(Curl_dyn_add(&flags, ""))
+    goto cleanup;
+
+  result = imap_sendf(data, "APPEND %s%s {%" FMT_OFF_T "}",
+                      mailbox, Curl_dyn_ptr(&flags), data->state.infilesize);
+
+cleanup:
+  Curl_dyn_free(&flags);
   free(mailbox);
 
   if(!result)
@@ -1747,14 +1785,8 @@ static CURLcode imap_setup_connection(struct Curl_easy *data,
                                       struct connectdata *conn)
 {
   /* Initialise the IMAP layer */
-  CURLcode result = imap_init(data);
-  if(result)
-    return result;
-
-  /* Clear the TLS upgraded flag */
-  conn->bits.tls_upgraded = FALSE;
-
-  return CURLE_OK;
+  (void)conn;
+  return imap_init(data);
 }
 
 /***********************************************************************

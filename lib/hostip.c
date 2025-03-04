@@ -42,7 +42,9 @@
 #endif
 
 #include <setjmp.h>
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 
 #include "urldata.h"
 #include "sendf.h"
@@ -1448,7 +1450,7 @@ CURLcode Curl_once_resolved(struct Curl_easy *data, bool *protocol_done)
 
   if(result) {
     Curl_detach_connection(data);
-    Curl_cpool_disconnect(data, conn, TRUE);
+    Curl_conn_terminate(data, conn, TRUE);
   }
   return result;
 }
@@ -1478,7 +1480,7 @@ CURLcode Curl_resolver_error(struct Curl_easy *data)
   }
 
   failf(data, "Could not resolve %s: %s", host_or_proxy,
-        data->state.async.hostname);
+        data->conn->host.dispname);
 
   return result;
 }

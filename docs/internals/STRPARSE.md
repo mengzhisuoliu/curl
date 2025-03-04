@@ -81,7 +81,7 @@ int Curl_str_quotedword(char **linep, struct Curl_str *out, const size_t max);
 ~~~
 
 Get a "quoted" word. This means everything that is provided within a leading
-and an ending double character. No escaping possible.
+and an ending double quote character. No escaping possible.
 
 `max` is the longest accepted word, or it returns error.
 
@@ -150,6 +150,15 @@ int Curl_str_casecompare(struct Curl_str *str, const char *check);
 
 Returns true if the provided string in the `str` argument matches the `check`
 string case insensitively.
+
+## `Curl_str_cmp`
+
+~~~c
+int Curl_str_cmp(struct Curl_str *str, const char *check);
+~~~
+
+Returns true if the provided string in the `str` argument matches the `check`
+string case sensitively. This is *not* the same return code as `strcmp`.
 
 ## `Curl_str_nudge`
 

@@ -293,6 +293,7 @@ typedef enum {
   C_IP_TOS,
   C_UNIX_SOCKET,
   C_UPLOAD_FILE,
+  C_UPLOAD_FLAGS,
   C_URL,
   C_URL_QUERY,
   C_USE_ASCII,
@@ -361,7 +362,8 @@ const struct LongShort *findlongopt(const char *opt);
 const struct LongShort *findshortopt(char letter);
 
 ParameterError getparameter(const char *flag, char *nextarg,
-                            argv_item_t cleararg,
+                            argv_item_t cleararg1,
+                            argv_item_t cleararg2,
                             bool *usedarg,
                             struct GlobalConfig *global,
                             struct OperationConfig *operation);

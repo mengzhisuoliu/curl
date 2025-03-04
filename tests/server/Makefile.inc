@@ -22,8 +22,7 @@
 #
 ###########################################################################
 
-noinst_PROGRAMS = getpart resolve rtspd sockfilt sws tftpd    \
- socksd disabled mqttd
+noinst_PROGRAMS = resolve rtspd sockfilt sws tftpd socksd disabled mqttd
 
 CURLX_SRCS = \
  ../../lib/mprintf.c \
@@ -64,12 +63,9 @@ USEFUL = \
 
 UTIL = \
  util.c \
- util.h
-
-getpart_SOURCES = $(CURLX_SRCS) $(CURLX_HDRS) $(USEFUL) \
- testpart.c
-getpart_LDADD = @CURL_NETWORK_AND_TIME_LIBS@
-getpart_CFLAGS = $(AM_CFLAGS)
+ util.h \
+ ../../lib/strerror.c \
+ ../../lib/strerror.h
 
 resolve_SOURCES = $(CURLX_SRCS) $(CURLX_HDRS) $(USEFUL) $(UTIL) \
  resolve.c

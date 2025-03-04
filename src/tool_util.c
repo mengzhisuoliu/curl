@@ -28,7 +28,7 @@
 #include "curlx.h"
 #include "memdebug.h" /* keep this as LAST include */
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
 /* In case of bug fix this function has a counterpart in timeval.c */
 struct timeval tvnow(void)
@@ -43,12 +43,12 @@ struct timeval tvnow(void)
   }
   else {
     /* Disable /analyze warning that GetTickCount64 is preferred  */
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:28159)
 #endif
     DWORD milliseconds = GetTickCount();
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
@@ -121,7 +121,7 @@ struct timeval tvnow(void)
 
 #endif
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
 struct timeval tvrealnow(void)
 {
@@ -188,12 +188,10 @@ int struplocompare4sort(const void *p1, const void *p2)
 
 #ifdef USE_TOOL_FTRUNCATE
 
-#ifdef _WIN32_WCE
+#ifdef UNDER_CE
 /* 64-bit lseek-like function unavailable */
 #  undef _lseeki64
 #  define _lseeki64(hnd,ofs,whence) lseek(hnd,ofs,whence)
-#  undef _get_osfhandle
-#  define _get_osfhandle(fd) (fd)
 #endif
 
 /*
@@ -215,7 +213,7 @@ int tool_ftruncate64(int fd, curl_off_t where)
 
 #endif /* USE_TOOL_FTRUNCATE */
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(UNDER_CE)
 FILE *Curl_execpath(const char *filename, char **pathp)
 {
   static char filebuffer[512];

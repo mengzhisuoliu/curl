@@ -33,7 +33,6 @@
  *
  */
 
-#include <signal.h>
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -53,8 +52,6 @@
 
 static bool use_ipv6 = FALSE;
 static const char *ipv_inuse = "IPv4";
-
-const char *serverlogfile = ""; /* for a util.c function we don't use */
 
 int main(int argc, char *argv[])
 {
@@ -100,8 +97,8 @@ int main(int argc, char *argv[])
   }
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
 #if defined(CURLRES_IPV6)

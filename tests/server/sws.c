@@ -30,7 +30,9 @@
 
  */
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -55,15 +57,6 @@
 
 /* include memdebug.h last */
 #include "memdebug.h"
-
-#ifdef USE_WINSOCK
-#undef  EINTR
-#define EINTR    4 /* errno.h value */
-#undef  EAGAIN
-#define EAGAIN  11 /* errno.h value */
-#undef  ERANGE
-#define ERANGE  34 /* errno.h value */
-#endif
 
 static int socket_domain = AF_INET;
 static bool use_gopher = FALSE;
@@ -129,11 +122,6 @@ static void storerequest(const char *reqbuf, size_t totalsize);
 
 #define DEFAULT_PORT 8999
 
-#ifndef DEFAULT_LOGFILE
-#define DEFAULT_LOGFILE "log/sws.log"
-#endif
-
-const char *serverlogfile = DEFAULT_LOGFILE;
 static const char *logdir = "log";
 static char loglockfile[256];
 
@@ -149,7 +137,7 @@ static char loglockfile[256];
 
 /* file in which additional instructions may be found */
 #define DEFAULT_CMDFILE "log/server.cmd"
-const char *cmdfile = DEFAULT_CMDFILE;
+static const char *cmdfile = DEFAULT_CMDFILE;
 
 /* very-big-path support */
 #define MAXDOCNAMELEN 140000
@@ -182,13 +170,6 @@ const char *cmdfile = DEFAULT_CMDFILE;
 #define CMD_NOEXPECT "no-expect"
 
 #define END_OF_HEADERS "\r\n\r\n"
-
-enum {
-  DOCNUMBER_NOTHING = -4,
-  DOCNUMBER_QUIT    = -3,
-  DOCNUMBER_WERULEZ = -2,
-  DOCNUMBER_404     = -1
-};
 
 static const char *end_of_headers = END_OF_HEADERS;
 
@@ -622,7 +603,7 @@ static int ProcessRequest(struct httprequest *req)
       while(*ptr && ISSPACE(*ptr))
         ptr++;
       endptr = ptr;
-      errno = 0;
+      CURL_SETERRNO(0);
       clen = strtoul(ptr, &endptr, 10);
       if((ptr == endptr) || !ISSPACE(*endptr) || (ERANGE == errno)) {
         /* this assumes that a zero Content-Length is valid */
@@ -888,7 +869,8 @@ static int get_request(curl_socket_t sock, struct httprequest *req)
           logmsg("Got %zu bytes from client", got);
         }
 
-        if((got == -1) && ((EAGAIN == errno) || (EWOULDBLOCK == errno))) {
+        if((got == -1) && ((SOCKERRNO == EAGAIN) ||
+                           (SOCKERRNO == EWOULDBLOCK))) {
           int rc;
           fd_set input;
           fd_set output;
@@ -910,7 +892,7 @@ static int get_request(curl_socket_t sock, struct httprequest *req)
           do {
             logmsg("Wait until readable");
             rc = select((int)sock + 1, &input, &output, NULL, &timeout);
-          } while(rc < 0 && errno == EINTR && !got_exit_signal);
+          } while(rc < 0 && SOCKERRNO == EINTR && !got_exit_signal);
           logmsg("readable %d", rc);
           if(rc)
             got = 1;
@@ -1586,7 +1568,7 @@ static void http_connect(curl_socket_t *infdp,
 
     do {
       rc = select((int)maxfd + 1, &input, &output, NULL, &timeout);
-    } while(rc < 0 && errno == EINTR && !got_exit_signal);
+    } while(rc < 0 && SOCKERRNO == EINTR && !got_exit_signal);
 
     if(got_exit_signal)
       break;
@@ -1609,7 +1591,7 @@ static void http_connect(curl_socket_t *infdp,
           if(!req2) {
             req2 = malloc(sizeof(*req2));
             if(!req2)
-              exit(1);
+              goto http_connect_cleanup;  /* fail */
           }
           memset(req2, 0, sizeof(*req2));
           logmsg("====> Client connect DATA");
@@ -2058,6 +2040,8 @@ int main(int argc, char *argv[])
   /* a default CONNECT port is basically pointless but still ... */
   size_t socket_idx;
 
+  serverlogfile = "log/sws.log";
+
   while(argc > arg) {
     if(!strcmp("--version", argv[arg])) {
       puts("sws IPv4"
@@ -2205,8 +2189,8 @@ int main(int argc, char *argv[])
             is_proxy ? "-proxy" : "", socket_type);
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   install_signal_handlers(false);
@@ -2404,7 +2388,7 @@ int main(int argc, char *argv[])
 
     do {
       rc = select((int)maxfd + 1, &input, &output, NULL, &timeout);
-    } while(rc < 0 && errno == EINTR && !got_exit_signal);
+    } while(rc < 0 && SOCKERRNO == EINTR && !got_exit_signal);
 
     if(got_exit_signal)
       goto sws_cleanup;

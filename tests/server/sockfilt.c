@@ -85,7 +85,9 @@
  * it!
  */
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -112,28 +114,11 @@
 /* include memdebug.h last */
 #include "memdebug.h"
 
-#ifdef USE_WINSOCK
-#undef  EINTR
-#define EINTR    4 /* errno.h value */
-#undef  EAGAIN
-#define EAGAIN  11 /* errno.h value */
-#undef  ENOMEM
-#define ENOMEM  12 /* errno.h value */
-#undef  EINVAL
-#define EINVAL  22 /* errno.h value */
-#endif
-
 #define DEFAULT_PORT 8999
-
-#ifndef DEFAULT_LOGFILE
-#define DEFAULT_LOGFILE "log/sockfilt.log"
-#endif
 
 /* buffer is this excessively large only to be able to support things like
   test 1003 which tests exceedingly large server response lines */
 #define BUFFER_SIZE 17010
-
-const char *serverlogfile = DEFAULT_LOGFILE;
 
 static bool verbose = FALSE;
 static bool bind_only = FALSE;
@@ -151,7 +136,7 @@ enum sockmode {
   ACTIVE_DISCONNECT  /* as a client, disconnected from server */
 };
 
-#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP)
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
 /*
  * read-wrapper to support reading from stdin on Windows.
  */
@@ -178,7 +163,7 @@ static ssize_t read_wincon(int fd, void *buf, size_t count)
     return rcount;
   }
 
-  errno = (int)GetLastError();
+  CURL_SETERRNO((int)GetLastError());
   return -1;
 }
 #undef  read
@@ -213,12 +198,14 @@ static ssize_t write_wincon(int fd, const void *buf, size_t count)
     return wcount;
   }
 
-  errno = (int)GetLastError();
+  CURL_SETERRNO((int)GetLastError());
   return -1;
 }
 #undef  write
 #define write(a,b,c) write_wincon(a,b,c)
 #endif
+
+#ifndef UNDER_CE
 
 /* On Windows, we sometimes get this for a broken pipe, seemingly
  * when the client just closed stdin? */
@@ -337,6 +324,7 @@ static bool read_stdin(void *buffer, size_t nbytes)
   }
   return TRUE;
 }
+#endif
 
 /*
  * write_stdout tries to write to stdio nbytes from the given buffer. This is a
@@ -347,7 +335,13 @@ static bool read_stdin(void *buffer, size_t nbytes)
 
 static bool write_stdout(const void *buffer, size_t nbytes)
 {
-  ssize_t nwrite = fullwrite(fileno(stdout), buffer, nbytes);
+  ssize_t nwrite;
+#ifdef UNDER_CE
+  puts(buffer);
+  nwrite = nbytes;
+#else
+  nwrite = fullwrite(fileno(stdout), buffer, nbytes);
+#endif
   if(nwrite != (ssize_t)nbytes) {
     logmsg("exiting...");
     return FALSE;
@@ -355,6 +349,7 @@ static bool write_stdout(const void *buffer, size_t nbytes)
   return TRUE;
 }
 
+#ifndef UNDER_CE
 static void lograw(unsigned char *buffer, ssize_t len)
 {
   char data[120];
@@ -426,9 +421,10 @@ static bool read_data_block(unsigned char *buffer, ssize_t maxlen,
 
   return TRUE;
 }
+#endif
 
 
-#if defined(USE_WINSOCK) && !defined(CURL_WINDOWS_UWP)
+#if defined(USE_WINSOCK) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
 /*
  * Winsock select() does not support standard file descriptors,
  * it can only check SOCKETs. The following function is an attempt
@@ -446,12 +442,8 @@ struct select_ws_wait_data {
   HANDLE signal; /* internal event to signal handle trigger */
   HANDLE abort;  /* internal event to abort waiting threads */
 };
-#ifdef _WIN32_WCE
-static DWORD WINAPI select_ws_wait_thread(LPVOID lpParameter)
-#else
 #include <process.h>
 static unsigned int WINAPI select_ws_wait_thread(void *lpParameter)
-#endif
 {
   struct select_ws_wait_data *data;
   HANDLE signal, handle, handles[2];
@@ -594,11 +586,7 @@ static unsigned int WINAPI select_ws_wait_thread(void *lpParameter)
 }
 static HANDLE select_ws_wait(HANDLE handle, HANDLE signal, HANDLE abort)
 {
-#ifdef _WIN32_WCE
-  typedef HANDLE curl_win_thread_handle_t;
-#else
   typedef uintptr_t curl_win_thread_handle_t;
-#endif
   struct select_ws_wait_data *data;
   curl_win_thread_handle_t thread;
 
@@ -610,11 +598,7 @@ static HANDLE select_ws_wait(HANDLE handle, HANDLE signal, HANDLE abort)
     data->abort = abort;
 
     /* launch waiting thread */
-#ifdef _WIN32_WCE
-    thread = CreateThread(NULL, 0,  &select_ws_wait_thread, data, 0, NULL);
-#else
     thread = _beginthreadex(NULL, 0, &select_ws_wait_thread, data, 0, NULL);
-#endif
 
     /* free data if thread failed to launch */
     if(!thread) {
@@ -646,7 +630,7 @@ static int select_ws(int nfds, fd_set *readfds, fd_set *writefds,
 
   /* check if the input value is valid */
   if(nfds < 0) {
-    errno = EINVAL;
+    CURL_SETERRNO(EINVAL);
     return -1;
   }
 
@@ -667,7 +651,7 @@ static int select_ws(int nfds, fd_set *readfds, fd_set *writefds,
   /* create internal event to abort waiting threads */
   abort = CreateEvent(NULL, TRUE, FALSE, NULL);
   if(!abort) {
-    errno = ENOMEM;
+    CURL_SETERRNO(ENOMEM);
     return -1;
   }
 
@@ -675,7 +659,7 @@ static int select_ws(int nfds, fd_set *readfds, fd_set *writefds,
   data = calloc(nfds, sizeof(struct select_ws_data));
   if(!data) {
     CloseHandle(abort);
-    errno = ENOMEM;
+    CURL_SETERRNO(ENOMEM);
     return -1;
   }
 
@@ -684,7 +668,7 @@ static int select_ws(int nfds, fd_set *readfds, fd_set *writefds,
   if(!handles) {
     CloseHandle(abort);
     free(data);
-    errno = ENOMEM;
+    CURL_SETERRNO(ENOMEM);
     return -1;
   }
 
@@ -900,6 +884,7 @@ static int select_ws(int nfds, fd_set *readfds, fd_set *writefds,
 #endif  /* USE_WINSOCK */
 
 
+#ifndef UNDER_CE
 /* Perform the disconnect handshake with sockfilt
  * This involves waiting for the disconnect acknowledgment after the DISC
  * command, while throwing away anything else that might come in before
@@ -954,6 +939,7 @@ static bool disc_handshake(void)
   } while(TRUE);
   return TRUE;
 }
+#endif
 
 /*
   sockfdp is a pointer to an established stream or CURL_SOCKET_BAD
@@ -965,6 +951,12 @@ static bool juggle(curl_socket_t *sockfdp,
                    curl_socket_t listenfd,
                    enum sockmode *mode)
 {
+#ifdef UNDER_CE
+  (void)sockfdp;
+  (void)listenfd;
+  (void)mode;
+  return FALSE;
+#else
   struct timeval timeout;
   fd_set fds_read;
   fd_set fds_write;
@@ -1089,11 +1081,11 @@ static bool juggle(curl_socket_t *sockfdp,
       return FALSE;
     }
 
-  } while((rc == -1) && ((error = errno) == EINTR));
+  } while((rc == -1) && ((error = SOCKERRNO) == EINTR));
 
   if(rc < 0) {
     logmsg("select() failed with error: (%d) %s",
-           error, strerror(error));
+           error, sstrerror(error));
     return FALSE;
   }
 
@@ -1236,6 +1228,7 @@ static bool juggle(curl_socket_t *sockfdp,
   }
 
   return TRUE;
+#endif
 }
 
 static curl_socket_t sockdaemon(curl_socket_t sock,
@@ -1396,6 +1389,8 @@ int main(int argc, char *argv[])
   enum sockmode mode = PASSIVE_LISTEN; /* default */
   const char *addr = NULL;
 
+  serverlogfile = "log/sockfilt.log";
+
   while(argc > arg) {
     if(!strcmp("--version", argv[arg])) {
       printf("sockfilt IPv4%s\n",
@@ -1497,8 +1492,8 @@ int main(int argc, char *argv[])
   }
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   CURL_SET_BINMODE(stdin);

@@ -161,7 +161,7 @@ timediff_t Curl_timeleft(struct Curl_easy *data,
 }
 
 void Curl_shutdown_start(struct Curl_easy *data, int sockindex,
-                         struct curltime *nowp)
+                         int timeout_ms, struct curltime *nowp)
 {
   struct curltime now;
 
@@ -171,8 +171,13 @@ void Curl_shutdown_start(struct Curl_easy *data, int sockindex,
     nowp = &now;
   }
   data->conn->shutdown.start[sockindex] = *nowp;
-  data->conn->shutdown.timeout_ms = (data->set.shutdowntimeout > 0) ?
-    data->set.shutdowntimeout : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  data->conn->shutdown.timeout_ms = (timeout_ms >= 0) ?
+    (unsigned int)timeout_ms :
+    ((data->set.shutdowntimeout > 0) ?
+     data->set.shutdowntimeout : DEFAULT_SHUTDOWN_TIMEOUT_MS);
+  if(data->conn->shutdown.timeout_ms)
+    Curl_expire_ex(data, nowp, data->conn->shutdown.timeout_ms,
+                   EXPIRE_SHUTDOWN);
 }
 
 timediff_t Curl_shutdown_timeleft(struct connectdata *conn, int sockindex,
@@ -301,7 +306,7 @@ bool Curl_addr2string(struct sockaddr *sa, curl_socklen_t salen,
 
   addr[0] = '\0';
   *port = 0;
-  errno = EAFNOSUPPORT;
+  CURL_SETERRNO(EAFNOSUPPORT);
   return FALSE;
 }
 
@@ -593,7 +598,7 @@ static CURLcode baller_connect(struct Curl_cfilter *cf,
   *connected = baller->connected;
   if(!baller->result &&  !*connected) {
     /* evaluate again */
-    baller->result = Curl_conn_cf_connect(baller->cf, data, 0, connected);
+    baller->result = Curl_conn_cf_connect(baller->cf, data, connected);
 
     if(!baller->result) {
       if(*connected) {
@@ -948,7 +953,7 @@ static void cf_he_adjust_pollset(struct Curl_cfilter *cf,
 
 static CURLcode cf_he_connect(struct Curl_cfilter *cf,
                               struct Curl_easy *data,
-                              bool blocking, bool *done)
+                              bool *done)
 {
   struct cf_he_ctx *ctx = cf->ctx;
   CURLcode result = CURLE_OK;
@@ -958,7 +963,6 @@ static CURLcode cf_he_connect(struct Curl_cfilter *cf,
     return CURLE_OK;
   }
 
-  (void)blocking;
   DEBUGASSERT(ctx);
   *done = FALSE;
 
@@ -1263,7 +1267,7 @@ struct cf_setup_ctx {
 
 static CURLcode cf_setup_connect(struct Curl_cfilter *cf,
                                  struct Curl_easy *data,
-                                 bool blocking, bool *done)
+                                 bool *done)
 {
   struct cf_setup_ctx *ctx = cf->ctx;
   CURLcode result = CURLE_OK;
@@ -1276,7 +1280,7 @@ static CURLcode cf_setup_connect(struct Curl_cfilter *cf,
   /* connect current sub-chain */
 connect_sub_chain:
   if(cf->next && !cf->next->connected) {
-    result = Curl_conn_cf_connect(cf->next, data, blocking, done);
+    result = Curl_conn_cf_connect(cf->next, data, done);
     if(result || !*done)
       return result;
   }

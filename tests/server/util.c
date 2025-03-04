@@ -23,7 +23,9 @@
  ***************************************************************************/
 #include "server_setup.h"
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -44,17 +46,17 @@
 #include <dos.h>  /* delay() */
 #endif
 
+#ifdef _WIN32
+#include "strerror.h"
+#endif
+
 #include "curlx.h" /* from the private lib dir */
 #include "getpart.h"
 #include "util.h"
 #include "timeval.h"
+#include "timediff.h"
 
-#ifdef USE_WINSOCK
-#undef  EINTR
-#define EINTR    4 /* errno.h value */
-#undef  EINVAL
-#define EINVAL  22 /* errno.h value */
-#endif
+const char *serverlogfile = NULL;  /* needs init from main() */
 
 static struct timeval tvnow(void);
 
@@ -136,28 +138,28 @@ void logmsg(const char *msg, ...)
 }
 
 #ifdef _WIN32
-/* use instead of strerror() on generic Windows */
-static const char *win32_strerror(int err, char *buf, size_t buflen)
-{
-  if(!FormatMessageA((FORMAT_MESSAGE_FROM_SYSTEM |
-                      FORMAT_MESSAGE_IGNORE_INSERTS), NULL, (DWORD)err,
-                     LANG_NEUTRAL, buf, (DWORD)buflen, NULL))
-    msnprintf(buf, buflen, "Unknown error %d (%#x)", err, err);
-  return buf;
-}
-
 /* use instead of perror() on generic Windows */
-void win32_perror(const char *msg)
+static void win32_perror(const char *msg)
 {
   char buf[512];
   int err = SOCKERRNO;
-  win32_strerror(err, buf, sizeof(buf));
+  Curl_winapi_strerror(err, buf, sizeof(buf));
   if(msg)
     fprintf(stderr, "%s: ", msg);
   fprintf(stderr, "%s\n", buf);
 }
 
-void win32_init(void)
+static void win32_cleanup(void)
+{
+#ifdef USE_WINSOCK
+  WSACleanup();
+#endif  /* USE_WINSOCK */
+
+  /* flush buffers of all streams regardless of their mode */
+  _flushall();
+}
+
+int win32_init(void)
 {
 #ifdef USE_WINSOCK
   WORD wVersionRequested;
@@ -168,58 +170,63 @@ void win32_init(void)
   err = WSAStartup(wVersionRequested, &wsaData);
 
   if(err) {
-    perror("Winsock init failed");
+    win32_perror("Winsock init failed");
     logmsg("Error initialising Winsock -- aborting");
-    exit(1);
+    return 1;
   }
 
   if(LOBYTE(wsaData.wVersion) != LOBYTE(wVersionRequested) ||
      HIBYTE(wsaData.wVersion) != HIBYTE(wVersionRequested) ) {
     WSACleanup();
-    perror("Winsock init failed");
+    win32_perror("Winsock init failed");
     logmsg("No suitable winsock.dll found -- aborting");
-    exit(1);
+    return 1;
   }
 #endif  /* USE_WINSOCK */
+  atexit(win32_cleanup);
+  return 0;
 }
 
-void win32_cleanup(void)
-{
-#ifdef USE_WINSOCK
-  WSACleanup();
-#endif  /* USE_WINSOCK */
-
-  /* flush buffers of all streams regardless of their mode */
-  _flushall();
-}
-
-/* socket-safe strerror (works on Winsock errors, too */
+/* socket-safe strerror (works on Winsock errors, too) */
 const char *sstrerror(int err)
 {
   static char buf[512];
-  return win32_strerror(err, buf, sizeof(buf));
+  return Curl_winapi_strerror(err, buf, sizeof(buf));
 }
 #endif  /* _WIN32 */
 
 /* set by the main code to point to where the test dir is */
 const char *path = ".";
 
-FILE *test2fopen(long testno, const char *logdir)
+FILE *test2fopen(long testno, const char *logdir2)
 {
   FILE *stream;
   char filename[256];
   /* first try the alternative, preprocessed, file */
-  msnprintf(filename, sizeof(filename), ALTTEST_DATA_PATH, logdir, testno);
+  msnprintf(filename, sizeof(filename), "%s/test%ld", logdir2, testno);
   stream = fopen(filename, "rb");
   if(stream)
     return stream;
 
   /* then try the source version */
-  msnprintf(filename, sizeof(filename), TEST_DATA_PATH, path, testno);
+  msnprintf(filename, sizeof(filename), "%s/data/test%ld", path, testno);
   stream = fopen(filename, "rb");
 
   return stream;
 }
+
+#if !defined(MSDOS) && !defined(USE_WINSOCK)
+static long timediff(struct timeval newer, struct timeval older)
+{
+  timediff_t diff = newer.tv_sec-older.tv_sec;
+  if(diff >= (LONG_MAX/1000))
+    return LONG_MAX;
+  else if(diff <= (LONG_MIN/1000))
+    return LONG_MIN;
+  return (long)(newer.tv_sec-older.tv_sec)*1000+
+    (long)(newer.tv_usec-older.tv_usec)/1000;
+}
+#endif
 
 /*
  * Portable function used for waiting a specific amount of ms.
@@ -244,10 +251,10 @@ int wait_ms(int timeout_ms)
   if(!timeout_ms)
     return 0;
   if(timeout_ms < 0) {
-    errno = EINVAL;
+    CURL_SETERRNO(EINVAL);
     return -1;
   }
-#if defined(MSDOS)
+#ifdef MSDOS
   delay(timeout_ms);
 #elif defined(USE_WINSOCK)
   Sleep((DWORD)timeout_ms);
@@ -283,14 +290,16 @@ curl_off_t our_getpid(void)
   curl_off_t pid;
 
   pid = (curl_off_t)Curl_getpid();
-#if defined(_WIN32)
-  /* store pid + 65536 to avoid conflict with Cygwin/msys PIDs, see also:
-   * - https://cygwin.com/git/?p=newlib-cygwin.git;a=commit; ↵
-   *   h=b5e1003722cb14235c4f166be72c09acdffc62ea
-   * - https://cygwin.com/git/?p=newlib-cygwin.git;a=commit; ↵
-   *   h=448cf5aa4b429d5a9cebf92a0da4ab4b5b6d23fe
+#ifdef _WIN32
+  /* store pid + MAX_PID to avoid conflict with Cygwin/msys PIDs, see also:
+   * - 2019-01-31: https://cygwin.com/git/?p=newlib-cygwin.git;a=commit; ↵
+   *               h=b5e1003722cb14235c4f166be72c09acdffc62ea
+   * - 2019-02-02: https://cygwin.com/git/?p=newlib-cygwin.git;a=commit; ↵
+   *               h=448cf5aa4b429d5a9cebf92a0da4ab4b5b6d23fe
+   * - 2024-12-19: https://cygwin.com/git/?p=newlib-cygwin.git;a=commit; ↵
+   *               h=363357c023ce01e936bdaedf0f479292a8fa4e0f
    */
-  pid += 65536;
+  pid += 4194304;
 #endif
   return pid;
 }
@@ -367,7 +376,7 @@ void clear_advisor_read_lock(const char *filename)
 }
 
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
 static struct timeval tvnow(void)
 {
@@ -455,17 +464,6 @@ static struct timeval tvnow(void)
 
 #endif
 
-long timediff(struct timeval newer, struct timeval older)
-{
-  timediff_t diff = newer.tv_sec-older.tv_sec;
-  if(diff >= (LONG_MAX/1000))
-    return LONG_MAX;
-  else if(diff <= (LONG_MIN/1000))
-    return LONG_MIN;
-  return (long)(newer.tv_sec-older.tv_sec)*1000+
-    (long)(newer.tv_usec-older.tv_usec)/1000;
-}
-
 /* vars used to keep around previous signal handlers */
 
 typedef void (*SIGHANDLER_T)(int);
@@ -501,12 +499,8 @@ static SIGHANDLER_T old_sigterm_handler = SIG_ERR;
 static SIGHANDLER_T old_sigbreak_handler = SIG_ERR;
 #endif
 
-#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP)
-#ifdef _WIN32_WCE
-static DWORD thread_main_id = 0;
-#else
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
 static unsigned int thread_main_id = 0;
-#endif
 static HANDLE thread_main_window = NULL;
 static HWND hidden_main_window = NULL;
 #endif
@@ -527,6 +521,7 @@ HANDLE exit_event = NULL;
  * The first time this is called it will set got_exit_signal to one and
  * store in exit_signal the signal that triggered its execution.
  */
+#ifndef UNDER_CE
 static void exit_signal_handler(int signum)
 {
   int old_errno = errno;
@@ -540,10 +535,11 @@ static void exit_signal_handler(int signum)
 #endif
   }
   (void)signal(signum, exit_signal_handler);
-  errno = old_errno;
+  CURL_SETERRNO(old_errno);
 }
+#endif
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(UNDER_CE)
 /* CTRL event handler for Windows Console applications to simulate
  * SIGINT, SIGTERM and SIGBREAK on CTRL events and trigger signal handler.
  *
@@ -591,7 +587,7 @@ static BOOL WINAPI ctrl_event_handler(DWORD dwCtrlType)
 }
 #endif
 
-#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP)
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
 /* Window message handler for Windows applications to add support
  * for graceful process termination via taskkill (without /f) which
  * sends WM_CLOSE to all Windows of a process (even hidden ones).
@@ -623,12 +619,8 @@ static LRESULT CALLBACK main_window_proc(HWND hwnd, UINT uMsg,
 }
 /* Window message queue loop for hidden main window, details see above.
  */
-#ifdef _WIN32_WCE
-static DWORD WINAPI main_window_loop(LPVOID lpParameter)
-#else
 #include <process.h>
 static unsigned int WINAPI main_window_loop(void *lpParameter)
-#endif
 {
   WNDCLASS wc;
   BOOL ret;
@@ -639,7 +631,7 @@ static unsigned int WINAPI main_window_loop(void *lpParameter)
   wc.hInstance = (HINSTANCE)lpParameter;
   wc.lpszClassName = TEXT("MainWClass");
   if(!RegisterClass(&wc)) {
-    perror("RegisterClass failed");
+    win32_perror("RegisterClass failed");
     return (DWORD)-1;
   }
 
@@ -651,14 +643,14 @@ static unsigned int WINAPI main_window_loop(void *lpParameter)
                                       (HWND)NULL, (HMENU)NULL,
                                       wc.hInstance, (LPVOID)NULL);
   if(!hidden_main_window) {
-    perror("CreateWindowEx failed");
+    win32_perror("CreateWindowEx failed");
     return (DWORD)-1;
   }
 
   do {
     ret = GetMessage(&msg, NULL, 0, 0);
     if(ret == -1) {
-      perror("GetMessage failed");
+      win32_perror("GetMessage failed");
       return (DWORD)-1;
     }
     else if(ret) {
@@ -676,6 +668,7 @@ static unsigned int WINAPI main_window_loop(void *lpParameter)
 }
 #endif
 
+#ifndef UNDER_CE
 static SIGHANDLER_T set_signal(int signum, SIGHANDLER_T handler,
                                bool restartable)
 {
@@ -705,6 +698,7 @@ static SIGHANDLER_T set_signal(int signum, SIGHANDLER_T handler,
   return oldhdlr;
 #endif
 }
+#endif
 
 void install_signal_handlers(bool keep_sigalrm)
 {
@@ -755,24 +749,17 @@ void install_signal_handlers(bool keep_sigalrm)
     logmsg("cannot install SIGBREAK handler: %s", strerror(errno));
 #endif
 #ifdef _WIN32
+#ifndef UNDER_CE
   if(!SetConsoleCtrlHandler(ctrl_event_handler, TRUE))
     logmsg("cannot install CTRL event handler");
-
-#ifndef CURL_WINDOWS_UWP
-  {
-#ifdef _WIN32_WCE
-    typedef HANDLE curl_win_thread_handle_t;
-#else
-    typedef uintptr_t curl_win_thread_handle_t;
 #endif
+
+#if !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
+  {
+    typedef uintptr_t curl_win_thread_handle_t;
     curl_win_thread_handle_t thread;
-#ifdef _WIN32_WCE
-    thread = CreateThread(NULL, 0, &main_window_loop,
-                          (LPVOID)GetModuleHandle(NULL), 0, &thread_main_id);
-#else
     thread = _beginthreadex(NULL, 0, &main_window_loop,
                             (void *)GetModuleHandle(NULL), 0, &thread_main_id);
-#endif
     thread_main_window = (HANDLE)thread;
     if(!thread_main_window || !thread_main_id)
       logmsg("cannot start main window loop");
@@ -812,8 +799,10 @@ void restore_signal_handlers(bool keep_sigalrm)
     (void) set_signal(SIGBREAK, old_sigbreak_handler, FALSE);
 #endif
 #ifdef _WIN32
+#ifndef UNDER_CE
   (void)SetConsoleCtrlHandler(ctrl_event_handler, FALSE);
-#ifndef CURL_WINDOWS_UWP
+#endif
+#if !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
   if(thread_main_window && thread_main_id) {
     if(PostThreadMessage(thread_main_id, WM_APP, 0, 0)) {
       if(WaitForSingleObjectEx(thread_main_window, INFINITE, TRUE)) {

@@ -37,7 +37,9 @@
 
 /* based on sockfilt.c */
 
+#ifndef UNDER_CE
 #include <signal.h>
+#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -62,16 +64,7 @@
 /* include memdebug.h last */
 #include "memdebug.h"
 
-#ifdef USE_WINSOCK
-#undef  EINTR
-#define EINTR    4 /* errno.h value */
-#endif
-
 #define DEFAULT_PORT 1883 /* MQTT default port */
-
-#ifndef DEFAULT_LOGFILE
-#define DEFAULT_LOGFILE "log/mqttd.log"
-#endif
 
 #ifndef DEFAULT_CONFIG
 #define DEFAULT_CONFIG "mqttd.config"
@@ -100,7 +93,6 @@ struct configurable {
 
 static struct configurable config;
 
-const char *serverlogfile = DEFAULT_LOGFILE;
 static const char *configfile = DEFAULT_CONFIG;
 static const char *logdir = "log";
 static char loglockfile[256];
@@ -931,6 +923,8 @@ int main(int argc, char *argv[])
   int error;
   int arg = 1;
 
+  serverlogfile = "log/mqttd.log";
+
   while(argc > arg) {
     if(!strcmp("--version", argv[arg])) {
       printf("mqttd IPv4%s\n",
@@ -1016,8 +1010,8 @@ int main(int argc, char *argv[])
             logdir, SERVERLOGS_LOCKDIR, ipv_inuse);
 
 #ifdef _WIN32
-  win32_init();
-  atexit(win32_cleanup);
+  if(win32_init())
+    return 2;
 #endif
 
   CURL_SET_BINMODE(stdin);

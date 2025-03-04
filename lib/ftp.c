@@ -587,8 +587,9 @@ static CURLcode ftp_readresp(struct Curl_easy *data,
   }
 #endif
 
-  /* store the latest code for later retrieval */
-  data->info.httpcode = code;
+  /* store the latest code for later retrieval, except during shutdown */
+  if(!data->conn->proto.ftpc.shutdown)
+    data->info.httpcode = code;
 
   if(ftpcode)
     *ftpcode = code;
@@ -3131,6 +3132,8 @@ static CURLcode ftp_block_statemach(struct Curl_easy *data,
   CURLcode result = CURLE_OK;
 
   while(ftpc->state != FTP_STOP) {
+    if(ftpc->shutdown)
+      CURL_TRC_FTP(data, "in shutdown, waiting for server response");
     result = Curl_pp_statemach(data, pp, TRUE, TRUE /* disconnecting */);
     if(result)
       break;
@@ -3290,7 +3293,7 @@ static CURLcode ftp_done(struct Curl_easy *data, CURLcode status,
 
   /* shut down the socket to inform the server we are done */
 
-#ifdef _WIN32_WCE
+#ifdef UNDER_CE
   shutdown(conn->sock[SECONDARYSOCKET], 2);  /* SD_BOTH */
 #endif
 
@@ -3603,7 +3606,7 @@ static CURLcode ftp_do_more(struct Curl_easy *data, int *completep)
     if(ftpc->wait_data_conn) {
       bool serv_conned;
 
-      result = Curl_conn_connect(data, SECONDARYSOCKET, TRUE, &serv_conned);
+      result = Curl_conn_connect(data, SECONDARYSOCKET, FALSE, &serv_conned);
       if(result)
         return result; /* Failed to accept data connection */
 
@@ -4042,6 +4045,7 @@ static CURLcode ftp_quit(struct Curl_easy *data, struct connectdata *conn)
   CURLcode result = CURLE_OK;
 
   if(conn->proto.ftpc.ctl_valid) {
+    CURL_TRC_FTP(data, "sending QUIT to close session");
     result = Curl_pp_sendf(data, &conn->proto.ftpc.pp, "%s", "QUIT");
     if(result) {
       failf(data, "Failure sending QUIT command: %s",
@@ -4081,6 +4085,7 @@ static CURLcode ftp_disconnect(struct Curl_easy *data,
      ftp_quit() will check the state of ftp->ctl_valid. If it is ok it
      will try to send the QUIT command, otherwise it will just return.
   */
+  ftpc->shutdown = TRUE;
   if(dead_connection)
     ftpc->ctl_valid = FALSE;
 
