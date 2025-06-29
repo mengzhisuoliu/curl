@@ -23,8 +23,6 @@
  ***************************************************************************/
 #include "tool_setup.h"
 
-#include <curlx.h>
-#include "tool_binmode.h"
 #include "tool_cfgable.h"
 #include "tool_cb_prg.h"
 #include "tool_filetime.h"
@@ -40,7 +38,7 @@
 #include "tool_help.h"
 #include "var.h"
 
-#include <memdebug.h> /* keep this as LAST include */
+#include "memdebug.h" /* keep this as LAST include */
 
 #define ALLOW_BLANK TRUE
 #define DENY_BLANK FALSE
@@ -153,7 +151,7 @@ static const struct LongShort aliases[]= {
   {"ftp-alternative-to-user",    ARG_STRG, ' ', C_FTP_ALTERNATIVE_TO_USER},
   {"ftp-create-dirs",            ARG_BOOL, ' ', C_FTP_CREATE_DIRS},
   {"ftp-method",                 ARG_STRG, ' ', C_FTP_METHOD},
-  {"ftp-pasv",                   ARG_BOOL, ' ', C_FTP_PASV},
+  {"ftp-pasv",                   ARG_NONE, ' ', C_FTP_PASV},
   {"ftp-port",                   ARG_STRG, 'P', C_FTP_PORT},
   {"ftp-pret",                   ARG_BOOL, ' ', C_FTP_PRET},
   {"ftp-skip-pasv-ip",           ARG_BOOL, ' ', C_FTP_SKIP_PASV_IP},
@@ -625,7 +623,7 @@ static ParameterError data_urlencode(struct GlobalConfig *global,
     /* a '@' letter, it means that a filename or - (stdin) follows */
     if(!strcmp("-", p)) {
       file = stdin;
-      CURL_SET_BINMODE(stdin);
+      CURLX_SET_BINMODE(stdin);
     }
     else {
       file = fopen(p, "rb");
@@ -901,7 +899,7 @@ static ParameterError set_data(cmdline_t cmd,
     if(!strcmp("-", nextarg)) {
       file = stdin;
       if(cmd == C_DATA_BINARY) /* forced data-binary */
-        CURL_SET_BINMODE(stdin);
+        CURLX_SET_BINMODE(stdin);
     }
     else {
       file = fopen(nextarg, "rb");
@@ -1703,6 +1701,9 @@ static ParameterError opt_none(struct GlobalConfig *global,
     break;
   case C_DUMP_CA_EMBED: /* --dump-ca-embed */
     return PARAM_CA_EMBED_REQUESTED;
+  case C_FTP_PASV: /* --ftp-pasv */
+    tool_safefree(config->ftpport);
+    break;
 
   case C_HTTP1_0: /* --http1.0 */
     /* HTTP version 1.0 */
@@ -1996,7 +1997,7 @@ static ParameterError opt_bool(struct GlobalConfig *global,
     config->doh_verifystatus = toggle;
     break;
   case C_FALSE_START: /* --false-start */
-    config->falsestart = toggle;
+    opt_depr(global, a);
     break;
   case C_SSL_NO_REVOKE: /* --ssl-no-revoke */
     config->ssl_no_revoke = toggle;
@@ -2292,9 +2293,6 @@ static ParameterError opt_filestring(struct GlobalConfig *global,
     break;
   case C_URL: /* --url */
     err = parse_url(global, config, nextarg);
-    break;
-  case C_FTP_PASV: /* --ftp-pasv */
-    tool_safefree(config->ftpport);
     break;
   case C_SOCKS5: /* --socks5 */
     /*  socks5 proxy to use, and resolves the name locally and passes on the
